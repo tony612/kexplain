@@ -25,9 +25,8 @@ type Page struct {
 	windowHeight int
 	// The index of the currently selected field
 	selectedField int
-	// The number of list items skipped at the top before the first item is
-	// drawn.
-	itemOffset int
+	// Y of fields, index is field index
+	fieldsY []int
 }
 
 const plainColor = tcell.ColorDefault
@@ -46,6 +45,8 @@ const fieldDescIndent = 2
 const defaultWrap = 80
 
 const maxFieldWidth = 15
+
+const highlight = "[green::u]"
 
 func NewPage(doc *model.Doc) *Page {
 	return &Page{
@@ -67,11 +68,31 @@ func (p *Page) Draw(screen tcell.Screen) {
 	if p.height > 0 && p.currentY+height > p.height {
 		p.currentY = p.height - height
 	}
+	// Set selectedField to top position if Y changes
+	if len(p.fieldsY) > 0 && len(p.fieldsY) > p.selectedField {
+		if p.fieldsY[p.selectedField] < p.currentY {
+			for i, y := range p.fieldsY {
+				if y >= p.currentY {
+					p.selectedField = i
+					break
+				}
+			}
+		}
+		if p.fieldsY[p.selectedField] > p.currentY+p.windowHeight-1 {
+			for i := len(p.fieldsY) - 1; i >= 0; i-- {
+				if p.fieldsY[i] <= p.currentY+p.windowHeight-1 {
+					p.selectedField = i
+					break
+				}
+			}
+		}
+	}
 
 	dc := drawCtx{
 		screen: screen,
 		x:      x,
-		y:      y - p.currentY,
+		baseY:  p.currentY + y,
+		y:      0,
 		width:  width,
 		wrap:   defaultWrap,
 	}
@@ -107,13 +128,21 @@ func (p *Page) Draw(screen tcell.Screen) {
 	dc.newLine()
 	dc.drawLine(fieldsLabel, plainColor)
 	p.drawFields(&dc)
-	p.height = dc.y + p.currentY
+	p.height = dc.y - dc.baseY + p.currentY
 }
 
 func (p *Page) drawFields(dc *drawCtx) {
 	kind := p.doc.GetSubFieldKind()
 	if kind == nil {
 		return
+	}
+	fieldsLen := len(kind.Keys())
+	// selectedField selects the last one
+	if p.selectedField >= fieldsLen {
+		p.selectedField = fieldsLen - 1
+	}
+	if fieldsLen > 0 && len(p.fieldsY) == 0 {
+		p.fieldsY = make([]int, fieldsLen)
 	}
 	dc.indent += fieldIndent
 	defer func() {
@@ -131,8 +160,9 @@ func (p *Page) drawFields(dc *drawCtx) {
 			spaceLen = 3
 		}
 
+		p.fieldsY[i] = dc.y
 		if i == p.selectedField {
-			dc.draw(key, 0, fieldColor)
+			dc.draw(highlight+key, 0, fieldColor)
 		} else {
 			dc.draw(key, 0, fieldColor)
 		}
@@ -168,6 +198,25 @@ func (p *Page) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.
 			upFn(p.windowHeight)
 		case tcell.KeyPgDn, tcell.KeyCtrlF:
 			downFn(p.windowHeight)
+		case tcell.KeyTab:
+			p.selectedField += 1
+			if len(p.fieldsY) > p.selectedField {
+				p.currentY = p.fieldsY[p.selectedField]
+				if p.currentY < 0 {
+					p.currentY = 0
+				}
+			}
+		case tcell.KeyBacktab:
+			p.selectedField -= 1
+			if p.selectedField < 0 {
+				p.selectedField = 0
+			}
+			if len(p.fieldsY) > p.selectedField {
+				p.currentY = p.fieldsY[p.selectedField]
+				if p.currentY < 0 {
+					p.currentY = 0
+				}
+			}
 		case tcell.KeyRune:
 			switch event.Rune() {
 			case 'k':
@@ -187,4 +236,8 @@ func (p *Page) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.
 		}
 	})
 
+}
+
+func pressShift(e *tcell.EventKey) bool {
+	return e.Modifiers()&tcell.ModShift != 0
 }

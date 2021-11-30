@@ -9,18 +9,23 @@ type drawCtx struct {
 	screen tcell.Screen
 	x      int
 	y      int
+	baseY  int
 	width  int
 	wrap   int
 	indent int
 }
 
+func (d *drawCtx) drawY() int {
+	return d.y - d.baseY
+}
+
 func (d *drawCtx) draw(text string, xOffset int, color tcell.Color) int {
-	_, actualWidth := tview.Print(d.screen, text, d.x+d.indent+xOffset, d.y, d.width, tview.AlignLeft, color)
+	_, actualWidth := tview.Print(d.screen, text, d.x+d.indent+xOffset, d.drawY(), d.width, tview.AlignLeft, color)
 	return actualWidth
 }
 
 func (d *drawCtx) drawLine(text string, color tcell.Color) int {
-	_, actualWidth := tview.Print(d.screen, text, d.x+d.indent, d.y, d.width, tview.AlignLeft, color)
+	_, actualWidth := tview.Print(d.screen, text, d.x+d.indent, d.drawY(), d.width, tview.AlignLeft, color)
 	d.y++
 	return actualWidth
 }
