@@ -46,7 +46,7 @@ const defaultWrap = 80
 
 const maxFieldWidth = 15
 
-const highlight = "[green::u]"
+const highlight = "[black:green]"
 
 func NewPage(doc *model.Doc) *Page {
 	return &Page{
@@ -67,6 +67,10 @@ func (p *Page) Draw(screen tcell.Screen) {
 	// Hit the bottom
 	if p.height > 0 && p.currentY+height > p.height {
 		p.currentY = p.height - height
+	}
+	// page is short, stick it at the top
+	if height > p.height {
+		p.currentY = 0
 	}
 	// Set selectedField to top position if Y changes
 	if len(p.fieldsY) > 0 && len(p.fieldsY) > p.selectedField {
@@ -233,9 +237,20 @@ func (p *Page) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.
 			case 'q', 'Q':
 				p.stopFn()
 			}
+		case tcell.KeyEnter:
+			p.doc = p.doc.FindSubDoc(p.selectedField)
+			p.reset()
 		}
 	})
 
+}
+
+func (p *Page) reset() {
+	p.currentY = 0
+	p.height = 0
+	p.windowHeight = 0
+	p.selectedField = 0
+	p.fieldsY = []int{}
 }
 
 func pressShift(e *tcell.EventKey) bool {

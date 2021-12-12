@@ -135,7 +135,7 @@ func render(fieldsPath []string, schema proto.Schema, gvk schema.GroupVersionKin
 	app := tview.NewApplication()
 	page := view.NewPage(doc)
 	page.SetStopFn(func() { app.Stop() })
-	if err := app.SetRoot(page, true).EnableMouse(true).Run(); err != nil {
+	if err := app.SetRoot(page, true).Run(); err != nil {
 		return err
 	}
 
