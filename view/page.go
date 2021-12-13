@@ -1,6 +1,7 @@
 package view
 
 import (
+	"container/list"
 	"explainx/model"
 	"fmt"
 	"strings"
@@ -15,8 +16,15 @@ type Page struct {
 	doc    *model.Doc
 	stopFn func()
 
-	// runtime calculated
+	pageData *pageData
+	// Value is *pageData
+	// stores old pageData like browser history
+	// when going back to the parent field, pop the latest data
+	pageDataHistory *list.List
+}
 
+// pageData is runtime calculated data related to position and fields
+type pageData struct {
 	// Y of first line
 	currentY int
 	// height of the whole page
@@ -50,8 +58,10 @@ const highlight = "[black:green]"
 
 func NewPage(doc *model.Doc) *Page {
 	return &Page{
-		Box: tview.NewBox(),
-		doc: doc,
+		Box:             tview.NewBox(),
+		doc:             doc,
+		pageData:        &pageData{},
+		pageDataHistory: list.New(),
 	}
 }
 
@@ -62,30 +72,31 @@ func (p *Page) SetStopFn(fn func()) {
 func (p *Page) Draw(screen tcell.Screen) {
 	p.Box.DrawForSubclass(screen, p)
 	x, y, width, height := p.GetInnerRect()
-	p.windowHeight = height
+	data := p.pageData
+	data.windowHeight = height
 
 	// Hit the bottom
-	if p.height > 0 && p.currentY+height > p.height {
-		p.currentY = p.height - height
+	if data.height > 0 && data.currentY+height > data.height {
+		data.currentY = data.height - height
 	}
 	// page is short, stick it at the top
-	if height > p.height {
-		p.currentY = 0
+	if height > data.height {
+		data.currentY = 0
 	}
 	// Set selectedField to top position if Y changes
-	if len(p.fieldsY) > 0 && len(p.fieldsY) > p.selectedField {
-		if p.fieldsY[p.selectedField] < p.currentY {
-			for i, y := range p.fieldsY {
-				if y >= p.currentY {
-					p.selectedField = i
+	if len(data.fieldsY) > 0 && len(data.fieldsY) > data.selectedField {
+		if data.fieldsY[data.selectedField] < data.currentY {
+			for i, y := range data.fieldsY {
+				if y >= data.currentY {
+					data.selectedField = i
 					break
 				}
 			}
 		}
-		if p.fieldsY[p.selectedField] > p.currentY+p.windowHeight-1 {
-			for i := len(p.fieldsY) - 1; i >= 0; i-- {
-				if p.fieldsY[i] <= p.currentY+p.windowHeight-1 {
-					p.selectedField = i
+		if data.fieldsY[data.selectedField] > data.currentY+data.windowHeight-1 {
+			for i := len(data.fieldsY) - 1; i >= 0; i-- {
+				if data.fieldsY[i] <= data.currentY+data.windowHeight-1 {
+					data.selectedField = i
 					break
 				}
 			}
@@ -95,7 +106,7 @@ func (p *Page) Draw(screen tcell.Screen) {
 	dc := drawCtx{
 		screen: screen,
 		x:      x,
-		baseY:  p.currentY + y,
+		baseY:  data.currentY + y,
 		y:      0,
 		width:  width,
 		wrap:   defaultWrap,
@@ -132,7 +143,7 @@ func (p *Page) Draw(screen tcell.Screen) {
 	dc.newLine()
 	dc.drawLine(fieldsLabel, plainColor)
 	p.drawFields(&dc)
-	p.height = dc.y - dc.baseY + p.currentY
+	data.height = dc.y - dc.baseY + data.currentY
 }
 
 func (p *Page) drawFields(dc *drawCtx) {
@@ -140,13 +151,14 @@ func (p *Page) drawFields(dc *drawCtx) {
 	if kind == nil {
 		return
 	}
+	data := p.pageData
 	fieldsLen := len(kind.Keys())
 	// selectedField selects the last one
-	if p.selectedField >= fieldsLen {
-		p.selectedField = fieldsLen - 1
+	if data.selectedField >= fieldsLen {
+		data.selectedField = fieldsLen - 1
 	}
-	if fieldsLen > 0 && len(p.fieldsY) == 0 {
-		p.fieldsY = make([]int, fieldsLen)
+	if fieldsLen > 0 && len(data.fieldsY) == 0 {
+		data.fieldsY = make([]int, fieldsLen)
 	}
 	dc.indent += fieldIndent
 	defer func() {
@@ -164,8 +176,8 @@ func (p *Page) drawFields(dc *drawCtx) {
 			spaceLen = 3
 		}
 
-		p.fieldsY[i] = dc.y
-		if i == p.selectedField {
+		data.fieldsY[i] = dc.y
+		if i == data.selectedField {
 			dc.draw(highlight+key, 0, fieldColor)
 		} else {
 			dc.draw(key, 0, fieldColor)
@@ -183,14 +195,15 @@ func (p *Page) drawFields(dc *drawCtx) {
 
 func (p *Page) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
 	return p.WrapInputHandler(func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
+		data := p.pageData
 		upFn := func(size int) {
-			p.currentY -= size
-			if p.currentY < 0 {
-				p.currentY = 0
+			data.currentY -= size
+			if data.currentY < 0 {
+				data.currentY = 0
 			}
 		}
 		downFn := func(size int) {
-			p.currentY += size
+			data.currentY += size
 			// Hitting the bottom is handled in Draw
 		}
 		switch event.Key() {
@@ -199,26 +212,26 @@ func (p *Page) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.
 		case tcell.KeyDown, tcell.KeyCtrlN:
 			downFn(1)
 		case tcell.KeyPgUp, tcell.KeyCtrlB:
-			upFn(p.windowHeight)
+			upFn(data.windowHeight)
 		case tcell.KeyPgDn, tcell.KeyCtrlF:
-			downFn(p.windowHeight)
+			downFn(data.windowHeight)
 		case tcell.KeyTab:
-			p.selectedField += 1
-			if len(p.fieldsY) > p.selectedField {
-				p.currentY = p.fieldsY[p.selectedField]
-				if p.currentY < 0 {
-					p.currentY = 0
+			data.selectedField += 1
+			if len(data.fieldsY) > data.selectedField {
+				data.currentY = data.fieldsY[data.selectedField]
+				if data.currentY < 0 {
+					data.currentY = 0
 				}
 			}
 		case tcell.KeyBacktab:
-			p.selectedField -= 1
-			if p.selectedField < 0 {
-				p.selectedField = 0
+			data.selectedField -= 1
+			if data.selectedField < 0 {
+				data.selectedField = 0
 			}
-			if len(p.fieldsY) > p.selectedField {
-				p.currentY = p.fieldsY[p.selectedField]
-				if p.currentY < 0 {
-					p.currentY = 0
+			if len(data.fieldsY) > data.selectedField {
+				data.currentY = data.fieldsY[data.selectedField]
+				if data.currentY < 0 {
+					data.currentY = 0
 				}
 			}
 		case tcell.KeyRune:
@@ -228,31 +241,45 @@ func (p *Page) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.
 			case 'j':
 				downFn(1)
 			case 'g':
-				p.currentY = 0
+				data.currentY = 0
 			case 'G':
-				p.currentY = p.height - p.windowHeight
-				if p.currentY < 0 {
-					p.currentY = 0
+				data.currentY = data.height - data.windowHeight
+				if data.currentY < 0 {
+					data.currentY = 0
 				}
 			case 'q', 'Q':
 				p.stopFn()
+			case '[':
+				if pressAlt(event) {
+					newDoc := p.doc.FindParentDoc()
+					if newDoc == nil {
+						return
+					}
+					p.doc = newDoc
+					if p.pageDataHistory.Len() == 0 {
+						p.pageData = &pageData{}
+					} else {
+						p.pageData = p.pageDataHistory.Remove(p.pageDataHistory.Back()).(*pageData)
+					}
+				}
 			}
+		// Enter the sub field
 		case tcell.KeyEnter:
-			p.doc = p.doc.FindSubDoc(p.selectedField)
-			p.reset()
+			newDoc := p.doc.FindSubDoc(data.selectedField)
+			if newDoc == nil {
+				return
+			}
+			p.doc = newDoc
+			p.pageDataHistory.PushBack(p.pageData)
+			p.pageData = &pageData{}
 		}
 	})
-
-}
-
-func (p *Page) reset() {
-	p.currentY = 0
-	p.height = 0
-	p.windowHeight = 0
-	p.selectedField = 0
-	p.fieldsY = []int{}
 }
 
 func pressShift(e *tcell.EventKey) bool {
 	return e.Modifiers()&tcell.ModShift != 0
+}
+
+func pressAlt(e *tcell.EventKey) bool {
+	return e.Modifiers()&tcell.ModAlt != 0
 }

@@ -92,7 +92,7 @@ func (d *Doc) GetSubFieldKind() *proto.Kind {
 func (d *Doc) FindSubDoc(fieldIdx int) *Doc {
 	kind := d.GetSubFieldKind()
 	if kind == nil {
-		return d
+		return nil
 	}
 
 	fieldsLen := len(kind.Keys())
@@ -104,8 +104,19 @@ func (d *Doc) FindSubDoc(fieldIdx int) *Doc {
 	}
 
 	key := kind.Keys()[fieldIdx]
-	// subField := kind.Fields[key]
 	newDoc, err := NewDoc(d.schema, append(d.fieldsPath, key), d.gvk)
+	if err != nil {
+		fmt.Print(err)
+		return nil
+	}
+	return newDoc
+}
+
+func (d *Doc) FindParentDoc() *Doc {
+	if len(d.fieldsPath) == 0 {
+		return nil
+	}
+	newDoc, err := NewDoc(d.schema, d.fieldsPath[:len(d.fieldsPath)-1], d.gvk)
 	if err != nil {
 		fmt.Print(err)
 		return d
