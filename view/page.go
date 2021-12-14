@@ -147,7 +147,7 @@ func (p *Page) Draw(screen tcell.Screen) {
 }
 
 func (p *Page) drawFields(dc *drawCtx) {
-	kind := p.doc.GetSubFieldKind()
+	kind := p.doc.GetDocKind()
 	if kind == nil {
 		return
 	}

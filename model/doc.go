@@ -18,8 +18,8 @@ type Doc struct {
 	fieldType  string
 	typeName   string
 	gvk        schema.GroupVersionKind
-	// scheuma of array items
-	subSchema proto.Schema
+	// schema of field ref or ref of array
+	fieldRefSchema proto.Schema
 }
 
 func NewDoc(schema proto.Schema, fieldsPath []string, gvk schema.GroupVersionKind) (*Doc, error) {
@@ -32,28 +32,32 @@ func NewDoc(schema proto.Schema, fieldsPath []string, gvk schema.GroupVersionKin
 	if err != nil {
 		return nil, err
 	}
-	var subSchema proto.Schema = nil
-	if subTypeRef, ok := field.(*proto.Ref); ok {
-		subSchema = subTypeRef
-	}
-	if fieldArray, ok := field.(*proto.Array); ok {
-		subType := fieldArray.SubType
-		if subTypeRef, ok := subType.(*proto.Ref); ok {
-			subSchema = subTypeRef.SubSchema()
-		}
-	}
+	subSchema := findFieldSchema(field)
 
 	typeName := explain.GetTypeName(schema)
 
 	return &Doc{
-		schema:     schema,
-		field:      field,
-		fieldsPath: fieldsPath,
-		fieldName:  fieldName,
-		typeName:   typeName,
-		gvk:        gvk,
-		subSchema:  subSchema,
+		schema:         schema,
+		field:          field,
+		fieldsPath:     fieldsPath,
+		fieldName:      fieldName,
+		typeName:       typeName,
+		gvk:            gvk,
+		fieldRefSchema: subSchema,
 	}, nil
+}
+
+func findFieldSchema(field proto.Schema) proto.Schema {
+	if subTypeRef, ok := field.(*proto.Ref); ok {
+		return subTypeRef.SubSchema()
+	}
+	if fieldArray, ok := field.(*proto.Array); ok {
+		subType := fieldArray.SubType
+		if subTypeRef, ok := subType.(*proto.Ref); ok {
+			return subTypeRef.SubSchema()
+		}
+	}
+	return nil
 }
 
 func (d *Doc) GetKind() string {
@@ -76,21 +80,27 @@ func (d *Doc) GetFieldResource() string {
 
 func (d *Doc) GetDescriptions() []string {
 	desc := []string{d.field.GetDescription()}
-	if d.subSchema != nil {
-		desc = append(desc, d.subSchema.GetDescription())
+	if d.fieldRefSchema != nil {
+		desc = append(desc, d.fieldRefSchema.GetDescription())
 	}
 	return desc
 }
 
-func (d *Doc) GetSubFieldKind() *proto.Kind {
-	if kind, ok := d.subSchema.(*proto.Kind); ok {
+// GetDocKind returns Kind of the schema or the field ref schema
+func (d *Doc) GetDocKind() *proto.Kind {
+	if kind, ok := d.fieldRefSchema.(*proto.Kind); ok {
 		return kind
+	}
+	if len(d.fieldsPath) == 0 {
+		if kind, ok := d.schema.(*proto.Kind); ok {
+			return kind
+		}
 	}
 	return nil
 }
 
 func (d *Doc) FindSubDoc(fieldIdx int) *Doc {
-	kind := d.GetSubFieldKind()
+	kind := d.GetDocKind()
 	if kind == nil {
 		return nil
 	}
@@ -104,6 +114,13 @@ func (d *Doc) FindSubDoc(fieldIdx int) *Doc {
 	}
 
 	key := kind.Keys()[fieldIdx]
+
+	fSchema := findFieldSchema(kind.Fields[key])
+	// Field is not Ref, like string
+	if fSchema == nil {
+		return nil
+	}
+
 	newDoc, err := NewDoc(d.schema, append(d.fieldsPath, key), d.gvk)
 	if err != nil {
 		fmt.Print(err)
