@@ -178,12 +178,14 @@ func (p *Page) drawFields(dc *drawCtx) {
 
 		data.fieldsY[i] = dc.y
 		if i == data.selectedField {
-			dc.draw(highlight+key, 0, fieldColor)
+			dc.drawWithEscape(highlight+key, 0, fieldColor, false)
 		} else {
 			dc.draw(key, 0, fieldColor)
 		}
-		dc.draw(fmt.Sprintf("%s<%s>%s", strings.Repeat(" ", spaceLen),
-			explain.GetTypeName(v), required), len(key), plainColor)
+		dc.draw(
+			fmt.Sprintf("%s<%s>%s", strings.Repeat(" ", spaceLen), explain.GetTypeName(v), required),
+			len(key),
+			plainColor)
 		dc.y++
 
 		dc.indent += fieldDescIndent
