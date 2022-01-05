@@ -1,28 +1,32 @@
 package main
 
 import (
+	"explainx/mapper"
 	"explainx/model"
 	"explainx/view"
 	"flag"
 	"fmt"
+	"io/ioutil"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	openapi_v2 "github.com/googleapis/gnostic/openapiv2"
 	"github.com/rivo/tview"
-	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
-	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
 	"k8s.io/kube-openapi/pkg/util/proto"
-	"k8s.io/kubectl/pkg/explain"
 	"k8s.io/kubectl/pkg/util/openapi"
 )
 
-const defaultTimeoutSeconds = 3
+const (
+	defaultTimeoutSeconds       = 3
+	defaultGithubTimeoutSeconds = 5
+)
 
 func main() {
 	if len(os.Args) <= 1 {
@@ -40,10 +44,14 @@ func main() {
 	flag.Parse()
 
 	// First try fetching schema from k8s api
-	doc, mapper := fetchFromK8s(*kubeconfig)
-	if doc == nil || mapper == nil {
+	doc, mapper, err := fetchFromK8s(*kubeconfig)
+	if err != nil {
 		// Then try remote(GitHub)
-		doc = fetchFromRemote()
+		doc, mapper, err = fetchFromRemote()
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
+		}
 	}
 
 	if doc == nil {
@@ -57,23 +65,37 @@ func main() {
 		os.Exit(1)
 	}
 
-	err = run(schema, mapper, os.Args[1])
+	// err = run(schema, mapper, os.Args[1])
+	err = run(schema, mapper, "pod.spec.containers")
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 }
 
-func fetchFromRemote() *openapi_v2.Document {
-	// TODO: fetch from https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/swagger.json
+func fetchFromRemote() (*openapi_v2.Document, mapper.Mapper, error) {
+	client := &http.Client{Timeout: defaultGithubTimeoutSeconds * time.Second}
+	resp, err := client.Get("https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/swagger.json")
+	if err != nil {
+		return nil, nil, err
+	}
 
-	return nil
+	data, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, nil, err
+	}
+	doc, err := openapi_v2.ParseDocument(data)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return doc, mapper.NewRawMapper(), nil
 }
 
-func fetchFromK8s(kubeconfig string) (*openapi_v2.Document, meta.RESTMapper) {
+func fetchFromK8s(kubeconfig string) (*openapi_v2.Document, mapper.Mapper, error) {
 	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
 	if err != nil {
-		return nil, nil
+		return nil, nil, err
 	}
 
 	config.Timeout = time.Second * defaultTimeoutSeconds
@@ -82,35 +104,26 @@ func fetchFromK8s(kubeconfig string) (*openapi_v2.Document, meta.RESTMapper) {
 
 	client, err := discovery.NewDiscoveryClientForConfig(config)
 	if err != nil {
-		return nil, nil
+		return nil, nil, err
 	}
 
 	schema, err := client.OpenAPISchema()
 	if err != nil {
-		return nil, nil
+		return nil, nil, err
 	}
 
-	apiresources, err := restmapper.GetAPIGroupResources(client)
+	m, err := mapper.NewK8sMapper(client)
 	if err != nil {
-		return schema, nil
+		return schema, nil, err
 	}
-	mapper := restmapper.NewDiscoveryRESTMapper(apiresources)
-	mapper = restmapper.NewShortcutExpander(mapper, client)
-	return schema, mapper
+	return schema, m, nil
 }
 
-func run(schema openapi.Resources, mapper meta.RESTMapper, resource string) error {
-	fullySpecifiedGVR, fieldsPath, err := explain.SplitAndParseResourceRequest(resource, mapper)
+func run(schema openapi.Resources, mapper mapper.Mapper, inResource string) error {
+	resource, fieldsPath := splitDotNotation(inResource)
+	gvk, err := mapper.KindFor(resource)
 	if err != nil {
 		return err
-	}
-
-	gvk, _ := mapper.KindFor(fullySpecifiedGVR)
-	if gvk.Empty() {
-		gvk, err = mapper.KindFor(fullySpecifiedGVR.GroupResource().WithVersion(""))
-		if err != nil {
-			return err
-		}
 	}
 
 	found := schema.LookupResource(gvk)
@@ -140,4 +153,17 @@ func render(fieldsPath []string, schema proto.Schema, gvk schema.GroupVersionKin
 	}
 
 	return nil
+}
+
+func splitDotNotation(model string) (string, []string) {
+	var fieldsPath []string
+
+	// ignore trailing period
+	model = strings.TrimSuffix(model, ".")
+
+	dotModel := strings.Split(model, ".")
+	if len(dotModel) >= 1 {
+		fieldsPath = dotModel[1:]
+	}
+	return dotModel[0], fieldsPath
 }
