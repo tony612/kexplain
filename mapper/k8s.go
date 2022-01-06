@@ -11,11 +11,12 @@ type K8sMapper struct {
 	mapper meta.RESTMapper
 }
 
-func NewK8sMapper(client *discovery.DiscoveryClient) (*K8sMapper, error) {
+func NewK8sMapper(client discovery.DiscoveryInterface) (*K8sMapper, error) {
 	apiresources, err := restmapper.GetAPIGroupResources(client)
 	if err != nil {
 		return nil, err
 	}
+
 	mapper := restmapper.NewDiscoveryRESTMapper(apiresources)
 	mapper = restmapper.NewShortcutExpander(mapper, client)
 	return &K8sMapper{mapper: mapper}, nil

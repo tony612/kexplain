@@ -16,7 +16,6 @@ import (
 	openapi_v2 "github.com/googleapis/gnostic/openapiv2"
 	"github.com/rivo/tview"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
 	"k8s.io/kube-openapi/pkg/util/proto"
@@ -65,8 +64,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	// err = run(schema, mapper, os.Args[1])
-	err = run(schema, mapper, "pod.spec.containers")
+	err = run(schema, mapper, os.Args[1])
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -99,10 +97,10 @@ func fetchFromK8s(kubeconfig string) (*openapi_v2.Document, mapper.Mapper, error
 	}
 
 	config.Timeout = time.Second * defaultTimeoutSeconds
-	config.QPS = 100
-	config.Burst = 100
+	config.QPS = 50
+	config.Burst = 300
 
-	client, err := discovery.NewDiscoveryClientForConfig(config)
+	client, err := discoveryClient(config)
 	if err != nil {
 		return nil, nil, err
 	}
