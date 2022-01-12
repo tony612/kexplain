@@ -58,7 +58,7 @@ const highlight = "[black:green]"
 
 func NewPage(doc *model.Doc) *Page {
 	return &Page{
-		Box:             tview.NewBox(),
+		Box:             tview.NewBox().SetBackgroundColor(tcell.ColorDefault),
 		doc:             doc,
 		pageData:        &pageData{},
 		pageDataHistory: list.New(),
