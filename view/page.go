@@ -23,6 +23,8 @@ type Page struct {
 	pageDataHistory *list.List
 }
 
+const headerHeight = 1
+
 // pageData is runtime calculated data related to position and fields
 type pageData struct {
 	// Y of first line
@@ -69,22 +71,24 @@ func (p *Page) SetStopFn(fn func()) {
 	p.stopFn = fn
 }
 
+// Draw draws the view
 func (p *Page) Draw(screen tcell.Screen) {
 	p.Box.DrawForSubclass(screen, p)
 	x, y, width, height := p.GetInnerRect()
 	data := p.pageData
-	data.windowHeight = height
+	data.windowHeight = height - headerHeight
 
 	// Hit the bottom
 	if data.height > 0 && data.currentY+height > data.height {
 		data.currentY = data.height - height
 	}
-	// page is short, stick it at the top
+	// page is shorter than the screen, stick it at the top
 	if height > data.height {
 		data.currentY = 0
 	}
 	// Set selectedField to top position if Y changes
 	if len(data.fieldsY) > 0 && len(data.fieldsY) > data.selectedField {
+		// selected field is above the whole page
 		if data.fieldsY[data.selectedField] < data.currentY {
 			for i, y := range data.fieldsY {
 				if y >= data.currentY {
@@ -93,6 +97,7 @@ func (p *Page) Draw(screen tcell.Screen) {
 				}
 			}
 		}
+		// selected field is below the whole page
 		if data.fieldsY[data.selectedField] > data.currentY+data.windowHeight-1 {
 			for i := len(data.fieldsY) - 1; i >= 0; i-- {
 				if data.fieldsY[i] <= data.currentY+data.windowHeight-1 {
@@ -112,11 +117,9 @@ func (p *Page) Draw(screen tcell.Screen) {
 		wrap:   defaultWrap,
 	}
 
-	bottomLimit := y + height
-	_, totalHeight := screen.Size()
-	if bottomLimit > totalHeight {
-		bottomLimit = totalHeight
-	}
+	//// Draw header
+	dc.drawHorizontalLine(0, plainColor)
+	tview.Print(dc.screen, " "+p.doc.GetFullPath()+" ", 0, 0, dc.width, tview.AlignCenter, plainColor)
 
 	//// Draw header
 

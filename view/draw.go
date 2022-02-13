@@ -16,7 +16,8 @@ type drawCtx struct {
 }
 
 func (d *drawCtx) drawY() int {
-	return d.y - d.baseY
+	// skip header
+	return d.y - d.baseY + headerHeight
 }
 
 func (d *drawCtx) draw(text string, xOffset int, color tcell.Color) int {
@@ -27,7 +28,7 @@ func (d *drawCtx) drawWithEscape(text string, xOffset int, color tcell.Color, es
 	if escape {
 		text = tview.Escape(text)
 	}
-	_, actualWidth := tview.Print(d.screen, text, d.x+d.indent+xOffset, d.drawY(), d.width, tview.AlignLeft, color)
+	_, actualWidth := d.print(text, d.x+d.indent+xOffset, color)
 	return actualWidth
 }
 
@@ -39,9 +40,18 @@ func (d *drawCtx) drawLineWithEscape(text string, color tcell.Color, escape bool
 	if escape {
 		text = tview.Escape(text)
 	}
-	_, actualWidth := tview.Print(d.screen, text, d.x+d.indent, d.drawY(), d.width, tview.AlignLeft, color)
+	_, actualWidth := d.print(text, d.x+d.indent, color)
 	d.y++
 	return actualWidth
+}
+
+func (d *drawCtx) print(text string, x int, color tcell.Color) (int, int) {
+	y := d.drawY()
+	// skip header. tview.Print will check others
+	if y < headerHeight {
+		return 0, 0
+	}
+	return tview.Print(d.screen, text, x, y, d.width, tview.AlignLeft, color)
 }
 
 func (d *drawCtx) newLine() {
@@ -74,5 +84,11 @@ func (d *drawCtx) drawWrapped(text string, color tcell.Color) {
 	lines := wrapString(text, d.wrap-d.indent)
 	for _, line := range lines {
 		d.drawLine(line, color)
+	}
+}
+
+func (d *drawCtx) drawHorizontalLine(y int, color tcell.Color) {
+	for x := d.x; x < d.x+d.width-1; x++ {
+		d.screen.SetContent(x, y, tview.BoxDrawingsLightHorizontal, nil, tcell.StyleDefault.Foreground(color))
 	}
 }

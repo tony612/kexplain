@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/kube-openapi/pkg/util/proto"
@@ -16,7 +17,6 @@ type Doc struct {
 	fieldsPath []string
 	fieldName  string
 	fieldType  string
-	typeName   string
 	gvk        schema.GroupVersionKind
 	// schema of field ref or ref of array
 	fieldRefSchema proto.Schema
@@ -34,14 +34,11 @@ func NewDoc(schema proto.Schema, fieldsPath []string, gvk schema.GroupVersionKin
 	}
 	subSchema := findFieldSchema(field)
 
-	typeName := explain.GetTypeName(schema)
-
 	return &Doc{
 		schema:         schema,
 		field:          field,
 		fieldsPath:     fieldsPath,
 		fieldName:      fieldName,
-		typeName:       typeName,
 		gvk:            gvk,
 		fieldRefSchema: subSchema,
 	}, nil
@@ -99,6 +96,12 @@ func (d *Doc) GetDocKind() *proto.Kind {
 	return nil
 }
 
+// GetFullPath returns path like `deploy.spec.template.containers`
+func (d *Doc) GetFullPath() string {
+	return strings.ToLower(d.GetKind()) + "." + strings.Join(d.fieldsPath, ".")
+}
+
+// FindSubDoc returns the field doc for a field index
 func (d *Doc) FindSubDoc(fieldIdx int) *Doc {
 	kind := d.GetDocKind()
 	if kind == nil {
@@ -129,6 +132,7 @@ func (d *Doc) FindSubDoc(fieldIdx int) *Doc {
 	return newDoc
 }
 
+// FindParentDoc returns parent doc, like `deploy.spec` for `deploy.spec.template`
 func (d *Doc) FindParentDoc() *Doc {
 	if len(d.fieldsPath) == 0 {
 		return nil
