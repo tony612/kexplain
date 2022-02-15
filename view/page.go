@@ -11,6 +11,8 @@ import (
 	"k8s.io/kubectl/pkg/explain"
 )
 
+// Page is the view component of the page in kexplain,
+// which is based on tview.
 type Page struct {
 	*tview.Box
 	doc    *model.Doc
@@ -21,6 +23,12 @@ type Page struct {
 	// stores old pageData like browser history
 	// when going back to the parent field, pop the latest data
 	pageDataHistory *list.List
+
+	// Command
+	commandBar    *tview.InputField
+	typingCommand bool
+	command       string
+	searchText    string
 }
 
 const headerHeight = 1
@@ -58,15 +66,28 @@ const maxFieldWidth = 15
 
 const highlight = "[black:green]"
 
+// NewPage returns a Page
 func NewPage(doc *model.Doc) *Page {
-	return &Page{
-		Box:             tview.NewBox().SetBackgroundColor(tcell.ColorDefault),
+	page := &Page{
+		Box:             tview.NewBox().SetBackgroundColor(plainColor),
 		doc:             doc,
 		pageData:        &pageData{},
 		pageDataHistory: list.New(),
+		command:         ":",
 	}
+	commandBar := tview.NewInputField().
+		SetLabel("").
+		SetPlaceholder("").
+		SetFieldWidth(0).
+		SetFieldBackgroundColor(plainColor).
+		SetDoneFunc(func(key tcell.Key) {
+			page.handleCommand(key)
+		})
+	page.commandBar = commandBar
+	return page
 }
 
+// SetStopFn sets the stop callback, which is called when pressing q/Q.
 func (p *Page) SetStopFn(fn func()) {
 	p.stopFn = fn
 }
@@ -147,6 +168,31 @@ func (p *Page) Draw(screen tcell.Screen) {
 	dc.drawLine(fieldsLabel, plainColor)
 	p.drawFields(&dc)
 	data.height = dc.y - dc.baseY + data.currentY
+
+	//// Draw the search bar
+	p.commandBar.SetRect(x+1, height-1, width, 1)
+	p.commandBar.Draw(screen)
+	tview.Print(dc.screen, p.command, x, height-1, 1, tview.AlignLeft, plainColor)
+	if !p.typingCommand {
+		screen.ShowCursor(x+1, height-1)
+	}
+}
+
+// Focus is override of Box
+func (p *Page) Focus(delegate func(p tview.Primitive)) {
+	if p.typingCommand {
+		delegate(p.commandBar)
+	} else {
+		p.Box.Focus(delegate)
+	}
+}
+
+// HasFocus is override of Box
+func (p *Page) HasFocus() bool {
+	if p.typingCommand {
+		return p.commandBar.HasFocus()
+	}
+	return p.Box.HasFocus()
 }
 
 func (p *Page) drawFields(dc *drawCtx) {
@@ -198,8 +244,30 @@ func (p *Page) drawFields(dc *drawCtx) {
 	}
 }
 
+// InputHandler is override of Box, which handles keyboard inputs.
 func (p *Page) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
 	return p.WrapInputHandler(func(event *tcell.EventKey, setFocus func(p tview.Primitive)) {
+		defer func() {
+			if !p.typingCommand {
+				setFocus(p)
+			}
+		}()
+		if p.typingCommand {
+			// Pass event on to child primitive.
+			if p.commandBar != nil && p.commandBar.HasFocus() {
+				currText := p.commandBar.GetText()
+				if handler := p.commandBar.InputHandler(); handler != nil {
+					handler(event, setFocus)
+				}
+				// Exit inputting when backspace and current text is empty like what `less` does
+				if currText == "" && (event.Key() == tcell.KeyBackspace || event.Key() == tcell.KeyBackspace2) {
+					p.typingCommand = false
+					p.command = ":"
+					p.commandBar.SetText("")
+				}
+				return
+			}
+		}
 		data := p.pageData
 		upFn := func(size int) {
 			data.currentY -= size
@@ -221,7 +289,7 @@ func (p *Page) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.
 		case tcell.KeyPgDn, tcell.KeyCtrlF:
 			downFn(data.windowHeight)
 		case tcell.KeyTab:
-			data.selectedField += 1
+			data.selectedField++
 			if len(data.fieldsY) > data.selectedField {
 				data.currentY = data.fieldsY[data.selectedField]
 				if data.currentY < 0 {
@@ -229,7 +297,7 @@ func (p *Page) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.
 				}
 			}
 		case tcell.KeyBacktab:
-			data.selectedField -= 1
+			data.selectedField--
 			if data.selectedField < 0 {
 				data.selectedField = 0
 			}
@@ -267,6 +335,10 @@ func (p *Page) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.
 						p.pageData = p.pageDataHistory.Remove(p.pageDataHistory.Back()).(*pageData)
 					}
 				}
+			case '/':
+				p.typingCommand = true
+				p.command = "/"
+				setFocus(p.commandBar)
 			}
 		// Enter the sub field
 		case tcell.KeyEnter:
@@ -279,6 +351,22 @@ func (p *Page) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.
 			p.pageData = &pageData{}
 		}
 	})
+}
+
+func (p *Page) handleCommand(key tcell.Key) {
+	switch key {
+	// inputfield component also use KeyTab and KeyBacktab for done
+	// we only handle Enter and Escape
+	case tcell.KeyEnter, tcell.KeyEscape:
+		p.typingCommand = false
+		p.command = ":"
+		defer p.commandBar.SetText("")
+		// Only Enter means confirm the input
+		if key != tcell.KeyEnter {
+			return
+		}
+		p.searchText = p.commandBar.GetText()
+	}
 }
 
 func pressShift(e *tcell.EventKey) bool {
