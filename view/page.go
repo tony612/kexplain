@@ -18,7 +18,8 @@ type Page struct {
 	doc    *model.Doc
 	stopFn func()
 
-	pageData *pageData
+	staticData *pageStaticData
+	pageData   *pageData
 	// Value is *pageData
 	// stores old pageData like browser history
 	// when going back to the parent field, pop the latest data
@@ -28,23 +29,41 @@ type Page struct {
 	commandBar    *tview.InputField
 	typingCommand bool
 	command       string
-	searchText    string
+
+	// searching
+	searchText string
+	searching  searchDirection
 }
 
+type searchDirection = int8
+
+const (
+	searchStop searchDirection = 0
+	searchNext searchDirection = 1
+	searchBack searchDirection = 2
+)
+
 const headerHeight = 1
+
+// pageStaticData is fixed data for a page, which is calculated only once for a page
+type pageStaticData struct {
+	windowHeight int
+	// Y of fields, index is field index
+	fieldsY []int
+	// lines slices
+	lines []string
+}
+
+func (d *pageStaticData) height() int {
+	return len(d.lines)
+}
 
 // pageData is runtime calculated data related to position and fields
 type pageData struct {
 	// Y of first line
 	currentY int
-	// height of the whole page
-	height int
-	// height of the winddow
-	windowHeight int
 	// The index of the currently selected field
 	selectedField int
-	// Y of fields, index is field index
-	fieldsY []int
 }
 
 const plainColor = tcell.ColorDefault
@@ -60,11 +79,11 @@ const descIndent = 5
 const fieldIndent = 3
 const fieldDescIndent = 2
 
-const defaultWrap = 80
-
 const maxFieldWidth = 15
 
-const highlight = "[black:green]"
+const fieldHighlightMark = "[black:green]"
+const fieldColorMark = "[green:]"
+const resetMark = "[-:-:-]"
 
 // NewPage returns a Page
 func NewPage(doc *model.Doc) *Page {
@@ -74,6 +93,7 @@ func NewPage(doc *model.Doc) *Page {
 		pageData:        &pageData{},
 		pageDataHistory: list.New(),
 		command:         ":",
+		staticData:      &pageStaticData{},
 	}
 	commandBar := tview.NewInputField().
 		SetLabel("").
@@ -84,6 +104,7 @@ func NewPage(doc *model.Doc) *Page {
 			page.handleCommand(key)
 		})
 	page.commandBar = commandBar
+	page.calLines()
 	return page
 }
 
@@ -97,21 +118,24 @@ func (p *Page) Draw(screen tcell.Screen) {
 	p.Box.DrawForSubclass(screen, p)
 	x, y, width, height := p.GetInnerRect()
 	data := p.pageData
-	data.windowHeight = height - headerHeight
+	p.staticData.windowHeight = height - headerHeight
+
+	pageHeight := p.staticData.height()
+	fieldsY := p.staticData.fieldsY
 
 	// Hit the bottom
-	if data.height > 0 && data.currentY+height > data.height {
-		data.currentY = data.height - height
+	if pageHeight > 0 && data.currentY+height > pageHeight {
+		data.currentY = pageHeight - height
 	}
 	// page is shorter than the screen, stick it at the top
-	if height > data.height {
+	if height > pageHeight {
 		data.currentY = 0
 	}
 	// Set selectedField to top position if Y changes
-	if len(data.fieldsY) > 0 && len(data.fieldsY) > data.selectedField {
+	if len(fieldsY) > 0 && len(fieldsY) > data.selectedField {
 		// selected field is above the whole page
-		if data.fieldsY[data.selectedField] < data.currentY {
-			for i, y := range data.fieldsY {
+		if fieldsY[data.selectedField] < data.currentY {
+			for i, y := range fieldsY {
 				if y >= data.currentY {
 					data.selectedField = i
 					break
@@ -119,14 +143,18 @@ func (p *Page) Draw(screen tcell.Screen) {
 			}
 		}
 		// selected field is below the whole page
-		if data.fieldsY[data.selectedField] > data.currentY+data.windowHeight-1 {
-			for i := len(data.fieldsY) - 1; i >= 0; i-- {
-				if data.fieldsY[i] <= data.currentY+data.windowHeight-1 {
+		if fieldsY[data.selectedField] > data.currentY+p.staticData.windowHeight-1 {
+			for i := len(fieldsY) - 1; i >= 0; i-- {
+				if fieldsY[i] <= data.currentY+p.staticData.windowHeight-1 {
 					data.selectedField = i
 					break
 				}
 			}
 		}
+	}
+	// selectedField selects the last one
+	if data.selectedField >= len(p.staticData.fieldsY) {
+		data.selectedField = len(p.staticData.fieldsY) - 1
 	}
 
 	dc := drawCtx{
@@ -135,41 +163,20 @@ func (p *Page) Draw(screen tcell.Screen) {
 		baseY:  data.currentY + y,
 		y:      0,
 		width:  width,
-		wrap:   defaultWrap,
 	}
 
 	//// Draw header
 	dc.drawHorizontalLine(0, plainColor)
-	tview.Print(dc.screen, " "+p.doc.GetFullPath()+" ", 0, 0, dc.width, tview.AlignCenter, plainColor)
+	tview.Print(screen, " "+p.doc.GetFullPath()+" ", 0, 0, dc.width, tview.AlignCenter, plainColor)
 
-	//// Draw header
-
-	// KIND
-	dc.drawLine(kindPrefix+p.doc.GetKind(), plainColor)
-	// VERSION
-	dc.drawLine(versionPrefix+p.doc.GetVersion(), plainColor)
-	dc.newLine()
-	// RESOURCE
-	resource := p.doc.GetFieldResource()
-	if len(resource) > 0 {
-		dc.drawLine(resourcePrefix+resource, plainColor)
+	for i, l := range p.staticData.lines {
+		if i == fieldsY[data.selectedField] {
+			l = strings.Replace(l, fieldColorMark, fieldHighlightMark, 1)
+		}
+		dc.drawLineWithEscape(l, plainColor, false)
 	}
-	dc.newLine()
-	// DESCRIPTION
-	dc.drawLine(descriptionLabel, plainColor)
-	dc.indent += descIndent
-	dc.drawLines(p.doc.GetDescriptions(), plainColor)
-	dc.indent -= descIndent
 
-	//// Draw fields
-
-	// FIELDS
-	dc.newLine()
-	dc.drawLine(fieldsLabel, plainColor)
-	p.drawFields(&dc)
-	data.height = dc.y - dc.baseY + data.currentY
-
-	//// Draw the search bar
+	//// Draw the command bar
 	p.commandBar.SetRect(x+1, height-1, width, 1)
 	p.commandBar.Draw(screen)
 	tview.Print(dc.screen, p.command, x, height-1, 1, tview.AlignLeft, plainColor)
@@ -195,23 +202,43 @@ func (p *Page) HasFocus() bool {
 	return p.Box.HasFocus()
 }
 
-func (p *Page) drawFields(dc *drawCtx) {
+func (p *Page) calLines() {
+	c := newLinesCalculator()
+	// KIND
+	c.appendLine(kindPrefix + p.doc.GetKind())
+	// VERSION
+	c.appendLine(versionPrefix + p.doc.GetVersion())
+	c.appendLine("")
+	// RESOURCE
+	resource := p.doc.GetFieldResource()
+	if len(resource) > 0 {
+		c.appendLine(resourcePrefix + resource)
+		c.appendLine("")
+	}
+	// DESCRIPTION
+	c.appendLine(descriptionLabel)
+	c.indent += descIndent
+	c.appendLines(p.doc.GetDescriptions())
+	c.indent -= descIndent
+
+	//// Draw fields
+	c.appendLine("")
+	c.appendLine(fieldsLabel)
+	p.calFields(c)
+	p.staticData.lines = c.lines
+}
+
+func (p *Page) calFields(c *linesCalculator) {
 	kind := p.doc.GetDocKind()
 	if kind == nil {
 		return
 	}
-	data := p.pageData
+	data := p.staticData
 	fieldsLen := len(kind.Keys())
-	// selectedField selects the last one
-	if data.selectedField >= fieldsLen {
-		data.selectedField = fieldsLen - 1
-	}
-	if fieldsLen > 0 && len(data.fieldsY) == 0 {
-		data.fieldsY = make([]int, fieldsLen)
-	}
-	dc.indent += fieldIndent
+	data.fieldsY = make([]int, fieldsLen)
+	c.indent += fieldIndent
 	defer func() {
-		dc.indent -= fieldIndent
+		c.indent -= fieldIndent
 	}()
 	for i, key := range kind.Keys() {
 		v := kind.Fields[key]
@@ -225,22 +252,15 @@ func (p *Page) drawFields(dc *drawCtx) {
 			spaceLen = 3
 		}
 
-		data.fieldsY[i] = dc.y
-		if i == data.selectedField {
-			dc.drawWithEscape(highlight+key, 0, fieldColor, false)
-		} else {
-			dc.draw(key, 0, fieldColor)
-		}
-		dc.draw(
-			fmt.Sprintf("%s<%s>%s", strings.Repeat(" ", spaceLen), explain.GetTypeName(v), required),
-			len(key),
-			plainColor)
-		dc.y++
+		data.fieldsY[i] = c.y
+		fieldLine := fieldColorMark + key
+		fieldLine += fmt.Sprintf("%s<%s>%s", resetMark+strings.Repeat(" ", spaceLen), explain.GetTypeName(v), required)
+		c.appendLineWithEscape(fieldLine, false)
 
-		dc.indent += fieldDescIndent
-		dc.drawWrapped(v.GetDescription(), plainColor)
-		dc.indent -= fieldDescIndent
-		dc.newLine()
+		c.indent += fieldDescIndent
+		c.appendWrapped(v.GetDescription())
+		c.indent -= fieldDescIndent
+		c.appendLine("")
 	}
 }
 
@@ -285,13 +305,13 @@ func (p *Page) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.
 		case tcell.KeyDown, tcell.KeyCtrlN:
 			downFn(1)
 		case tcell.KeyPgUp, tcell.KeyCtrlB:
-			upFn(data.windowHeight)
+			upFn(p.staticData.windowHeight)
 		case tcell.KeyPgDn, tcell.KeyCtrlF:
-			downFn(data.windowHeight)
+			downFn(p.staticData.windowHeight)
 		case tcell.KeyTab:
 			data.selectedField++
-			if len(data.fieldsY) > data.selectedField {
-				data.currentY = data.fieldsY[data.selectedField]
+			if len(p.staticData.fieldsY) > data.selectedField {
+				data.currentY = p.staticData.fieldsY[data.selectedField]
 				if data.currentY < 0 {
 					data.currentY = 0
 				}
@@ -301,8 +321,8 @@ func (p *Page) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.
 			if data.selectedField < 0 {
 				data.selectedField = 0
 			}
-			if len(data.fieldsY) > data.selectedField {
-				data.currentY = data.fieldsY[data.selectedField]
+			if len(p.staticData.fieldsY) > data.selectedField {
+				data.currentY = p.staticData.fieldsY[data.selectedField]
 				if data.currentY < 0 {
 					data.currentY = 0
 				}
@@ -316,7 +336,7 @@ func (p *Page) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.
 			case 'g':
 				data.currentY = 0
 			case 'G':
-				data.currentY = data.height - data.windowHeight
+				data.currentY = p.staticData.height() - p.staticData.windowHeight
 				if data.currentY < 0 {
 					data.currentY = 0
 				}
