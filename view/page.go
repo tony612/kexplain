@@ -69,7 +69,6 @@ type pageData struct {
 }
 
 const plainColor = tcell.ColorDefault
-const fieldColor = tcell.ColorGreen
 
 const kindPrefix = "KIND:     "
 const versionPrefix = "VERSION:  "
@@ -83,14 +82,9 @@ const fieldDescIndent = 2
 
 const maxFieldWidth = 15
 
-const fieldHighlightMark = "[black:green]"
-
 var highlightStyle = tcell.StyleDefault.Background(tcell.ColorGreen).Foreground(tcell.ColorBlack)
 var fieldStyle = tcell.StyleDefault.Foreground(tcell.ColorGreen)
 var searchStyle = tcell.StyleDefault.Background(tcell.ColorLightYellow).Foreground(tcell.ColorBlack)
-
-const fieldColorMark = "[green:]"
-const resetMark = "[-:-:-]"
 
 // NewPage returns a Page
 func NewPage(doc *model.Doc) *Page {
