@@ -98,7 +98,11 @@ func (d *Doc) GetDocKind() *proto.Kind {
 
 // GetFullPath returns path like `deploy.spec.template.containers`
 func (d *Doc) GetFullPath() string {
-	return strings.ToLower(d.GetKind()) + "." + strings.Join(d.fieldsPath, ".")
+	kind := strings.ToLower(d.GetKind())
+	if len(d.fieldsPath) == 0 {
+		return kind
+	}
+	return kind + "." + strings.Join(d.fieldsPath, ".")
 }
 
 // FindSubDoc returns the field doc for a field index

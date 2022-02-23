@@ -45,6 +45,7 @@ const (
 )
 
 const headerHeight = 1
+const bottomHeight = 1
 
 // pageStaticData is fixed data for a page, which is calculated only once for a page
 type pageStaticData struct {
@@ -122,14 +123,14 @@ func (p *Page) Draw(screen tcell.Screen) {
 	p.Box.DrawForSubclass(screen, p)
 	x, y, width, height := p.GetInnerRect()
 	data := p.pageData
-	p.staticData.windowHeight = height - headerHeight
+	p.staticData.windowHeight = height - headerHeight - bottomHeight
 
 	pageHeight := p.staticData.height()
 	fieldsY := p.staticData.fieldsY
 
 	// Hit the bottom
-	if pageHeight > 0 && data.currentY+height > pageHeight {
-		data.currentY = pageHeight - height
+	if pageHeight > 0 && data.currentY+p.staticData.windowHeight > pageHeight {
+		data.currentY = pageHeight - p.staticData.windowHeight
 	}
 	// page is shorter than the screen, stick it at the top
 	if height > pageHeight {
@@ -137,7 +138,7 @@ func (p *Page) Draw(screen tcell.Screen) {
 	}
 	// Set selectedField to top position if Y changes
 	if len(fieldsY) > 0 && len(fieldsY) > data.selectedField {
-		// selected field is above the whole page
+		// When selected field is above the whole page, set to the first within the page
 		if fieldsY[data.selectedField] < data.currentY {
 			for i, y := range fieldsY {
 				if y >= data.currentY {
@@ -146,10 +147,10 @@ func (p *Page) Draw(screen tcell.Screen) {
 				}
 			}
 		}
-		// selected field is below the whole page
-		if fieldsY[data.selectedField] > data.currentY+p.staticData.windowHeight-1 {
+		// When selected field is below the whole page, set to the last within the page
+		if fieldsY[data.selectedField] > data.currentY+p.staticData.windowHeight {
 			for i := len(fieldsY) - 1; i >= 0; i-- {
-				if fieldsY[i] <= data.currentY+p.staticData.windowHeight-1 {
+				if fieldsY[i] <= data.currentY+p.staticData.windowHeight {
 					data.selectedField = i
 					break
 				}
@@ -384,9 +385,10 @@ func (p *Page) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.
 					}
 					p.doc = newDoc
 					if p.pageDataHistory.Len() == 0 {
-						p.pageData = &pageData{}
+						p.resetData()
 					} else {
 						p.pageData = p.pageDataHistory.Remove(p.pageDataHistory.Back()).(*pageData)
+						p.calLines()
 					}
 				}
 			case '/':
@@ -412,9 +414,14 @@ func (p *Page) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.
 			}
 			p.doc = newDoc
 			p.pageDataHistory.PushBack(p.pageData)
-			p.pageData = &pageData{}
+			p.resetData()
 		}
 	})
+}
+
+func (p *Page) resetData() {
+	p.pageData = &pageData{}
+	p.calLines()
 }
 
 func (p *Page) handleCommand(key tcell.Key) {
