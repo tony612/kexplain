@@ -44,3 +44,14 @@ func (d *drawCtx) drawHorizontalLine(y int, color tcell.Color) {
 		d.screen.SetContent(x, y, tview.BoxDrawingsLightHorizontal, nil, tcell.StyleDefault.Foreground(color))
 	}
 }
+
+func (d *drawCtx) overrideContent(s string, begin int, y int, style tcell.Style) {
+	// skip header. tview.Print will check others
+	if y < headerHeight {
+		return
+	}
+	for i, r := range s {
+		d.screen.SetContent(d.x+begin+i, y, r, nil, style)
+	}
+
+}

@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"explainx/model"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
@@ -82,6 +83,11 @@ const fieldDescIndent = 2
 const maxFieldWidth = 15
 
 const fieldHighlightMark = "[black:green]"
+
+var highlightStyle = tcell.StyleDefault.Background(tcell.ColorGreen).Foreground(tcell.ColorBlack)
+var fieldStyle = tcell.StyleDefault.Foreground(tcell.ColorGreen)
+var searchStyle = tcell.StyleDefault.Background(tcell.ColorLightYellow).Foreground(tcell.ColorBlack)
+
 const fieldColorMark = "[green:]"
 const resetMark = "[-:-:-]"
 
@@ -100,9 +106,7 @@ func NewPage(doc *model.Doc) *Page {
 		SetPlaceholder("").
 		SetFieldWidth(0).
 		SetFieldBackgroundColor(plainColor).
-		SetDoneFunc(func(key tcell.Key) {
-			page.handleCommand(key)
-		})
+		SetDoneFunc(page.handleCommand)
 	page.commandBar = commandBar
 	page.calLines()
 	return page
@@ -157,6 +161,25 @@ func (p *Page) Draw(screen tcell.Screen) {
 		data.selectedField = len(p.staticData.fieldsY) - 1
 	}
 
+	var searchRe *regexp.Regexp
+	if p.searchText != "" {
+		searchRe, _ = regexp.Compile(p.searchText)
+		var beginI, endI, delta int
+		if p.searching == searchNext {
+			beginI, endI, delta = data.currentY+1, len(p.staticData.lines), 1
+		} else if p.searching == searchBack {
+			beginI, endI, delta = data.currentY-1, -1, -1
+		}
+		for i := beginI; i != endI; i += delta {
+			if searchRe != nil && searchRe.MatchString(p.staticData.lines[i]) {
+				data.currentY = i
+				break
+			}
+		}
+	}
+	// reset researching, so that up/down moving can work normally
+	p.searching = searchStop
+
 	dc := drawCtx{
 		screen: screen,
 		x:      x,
@@ -169,11 +192,25 @@ func (p *Page) Draw(screen tcell.Screen) {
 	dc.drawHorizontalLine(0, plainColor)
 	tview.Print(screen, " "+p.doc.GetFullPath()+" ", 0, 0, dc.width, tview.AlignCenter, plainColor)
 
+	fieldIdx := 0
 	for i, l := range p.staticData.lines {
-		if i == fieldsY[data.selectedField] {
-			l = strings.Replace(l, fieldColorMark, fieldHighlightMark, 1)
-		}
+		drawY := dc.drawY()
 		dc.drawLineWithEscape(l, plainColor, false)
+		if i == fieldsY[data.selectedField] {
+			field, begin := findFirstField(l)
+			dc.overrideContent(field, begin, drawY, highlightStyle)
+			fieldIdx++
+		} else if fieldIdx < len(fieldsY) && i == fieldsY[fieldIdx] {
+			field, begin := findFirstField(l)
+			dc.overrideContent(field, begin, drawY, fieldStyle)
+			fieldIdx++
+		}
+		if p.searchText != "" && searchRe != nil {
+			found := searchRe.FindAllStringIndex(l, -1)
+			for _, pair := range found {
+				dc.overrideContent(l[pair[0]:pair[1]], pair[0], drawY, searchStyle)
+			}
+		}
 	}
 
 	//// Draw the command bar
@@ -253,9 +290,8 @@ func (p *Page) calFields(c *linesCalculator) {
 		}
 
 		data.fieldsY[i] = c.y
-		fieldLine := fieldColorMark + key
-		fieldLine += fmt.Sprintf("%s<%s>%s", resetMark+strings.Repeat(" ", spaceLen), explain.GetTypeName(v), required)
-		c.appendLineWithEscape(fieldLine, false)
+		fieldLine := key + fmt.Sprintf("%s<%s>%s", strings.Repeat(" ", spaceLen), explain.GetTypeName(v), required)
+		c.appendLine(fieldLine)
 
 		c.indent += fieldDescIndent
 		c.appendWrapped(v.GetDescription())
@@ -281,9 +317,7 @@ func (p *Page) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.
 				}
 				// Exit inputting when backspace and current text is empty like what `less` does
 				if currText == "" && (event.Key() == tcell.KeyBackspace || event.Key() == tcell.KeyBackspace2) {
-					p.typingCommand = false
-					p.command = ":"
-					p.commandBar.SetText("")
+					p.doneCommandTyping()
 				}
 				return
 			}
@@ -359,6 +393,16 @@ func (p *Page) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.
 				p.typingCommand = true
 				p.command = "/"
 				setFocus(p.commandBar)
+			case 'n':
+				if p.searchText == "" {
+					return
+				}
+				p.searching = searchNext
+			case 'N':
+				if p.searchText == "" {
+					return
+				}
+				p.searching = searchBack
 			}
 		// Enter the sub field
 		case tcell.KeyEnter:
@@ -378,15 +422,24 @@ func (p *Page) handleCommand(key tcell.Key) {
 	// inputfield component also use KeyTab and KeyBacktab for done
 	// we only handle Enter and Escape
 	case tcell.KeyEnter, tcell.KeyEscape:
-		p.typingCommand = false
-		p.command = ":"
-		defer p.commandBar.SetText("")
 		// Only Enter means confirm the input
-		if key != tcell.KeyEnter {
-			return
+		if key == tcell.KeyEnter {
+			p.searchText = p.commandBar.GetText()
+			if p.searchText != "" {
+				p.searching = searchNext
+			} else {
+				p.searching = searchStop
+			}
 		}
-		p.searchText = p.commandBar.GetText()
+
+		p.doneCommandTyping()
 	}
+}
+
+func (p *Page) doneCommandTyping() {
+	p.typingCommand = false
+	p.command = ":"
+	p.commandBar.SetText("")
 }
 
 func pressShift(e *tcell.EventKey) bool {
@@ -395,4 +448,25 @@ func pressShift(e *tcell.EventKey) bool {
 
 func pressAlt(e *tcell.EventKey) bool {
 	return e.Modifiers()&tcell.ModAlt != 0
+}
+
+func findFirstField(s string) (string, int) {
+	left := -1
+	right := -1
+	for i := 0; i < len(s); i++ {
+		if left > 0 {
+			if s[i] == ' ' {
+				right = i
+				break
+			}
+		} else {
+			if s[i] != ' ' {
+				left = i
+			}
+		}
+	}
+	if left > 0 && right > 0 {
+		return s[left:right], left
+	}
+	return "", left
 }
