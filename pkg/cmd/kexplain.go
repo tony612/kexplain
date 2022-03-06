@@ -3,9 +3,9 @@ package cmd
 import (
 	"fmt"
 	"io"
-	"kexplain/mapper"
-	"kexplain/model"
-	"kexplain/view"
+	"kexplain/pkg/mapper"
+	"kexplain/pkg/model"
+	"kexplain/pkg/view"
 	"net/http"
 	"os"
 	"path/filepath"

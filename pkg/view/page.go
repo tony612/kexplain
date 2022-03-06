@@ -3,7 +3,7 @@ package view
 import (
 	"container/list"
 	"fmt"
-	"kexplain/model"
+	"kexplain/pkg/model"
 	"regexp"
 	"strings"
 
