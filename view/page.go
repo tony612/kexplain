@@ -2,8 +2,8 @@ package view
 
 import (
 	"container/list"
-	"explainx/model"
 	"fmt"
+	"kexplain/model"
 	"regexp"
 	"strings"
 

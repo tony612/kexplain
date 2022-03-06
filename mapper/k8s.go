@@ -3,23 +3,14 @@ package mapper
 import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/discovery"
-	"k8s.io/client-go/restmapper"
 )
 
 type K8sMapper struct {
 	mapper meta.RESTMapper
 }
 
-func NewK8sMapper(client discovery.DiscoveryInterface) (*K8sMapper, error) {
-	apiresources, err := restmapper.GetAPIGroupResources(client)
-	if err != nil {
-		return nil, err
-	}
-
-	mapper := restmapper.NewDiscoveryRESTMapper(apiresources)
-	mapper = restmapper.NewShortcutExpander(mapper, client)
-	return &K8sMapper{mapper: mapper}, nil
+func NewK8sMapper(m meta.RESTMapper) *K8sMapper {
+	return &K8sMapper{mapper: m}
 }
 
 func (m *K8sMapper) KindFor(resource string) (gvk schema.GroupVersionKind, err error) {
