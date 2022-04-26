@@ -84,7 +84,8 @@ const maxFieldWidth = 15
 
 var highlightStyle = tcell.StyleDefault.Background(tcell.ColorGreen).Foreground(tcell.ColorBlack)
 var fieldStyle = tcell.StyleDefault.Foreground(tcell.ColorGreen)
-var searchStyle = tcell.StyleDefault.Background(tcell.ColorLightYellow).Foreground(tcell.ColorBlack)
+var searchStyle = tcell.StyleDefault.Background(tcell.ColorYellow).Foreground(tcell.ColorBlack)
+var highlightAndSearchStyle = tcell.StyleDefault.Background(tcell.ColorSeaGreen).Foreground(tcell.ColorBlack)
 
 // NewPage returns a Page
 func NewPage(doc *model.Doc) *Page {
@@ -130,31 +131,6 @@ func (p *Page) Draw(screen tcell.Screen) {
 	if height > pageHeight {
 		data.currentY = 0
 	}
-	// Set selectedField to top position if Y changes
-	if len(fieldsY) > 0 && len(fieldsY) > data.selectedField {
-		// When selected field is above the whole page, set to the first within the page
-		if fieldsY[data.selectedField] < data.currentY {
-			for i, y := range fieldsY {
-				if y >= data.currentY {
-					data.selectedField = i
-					break
-				}
-			}
-		}
-		// When selected field is below the whole page, set to the last within the page
-		if fieldsY[data.selectedField] > data.currentY+p.staticData.windowHeight {
-			for i := len(fieldsY) - 1; i >= 0; i-- {
-				if fieldsY[i] <= data.currentY+p.staticData.windowHeight {
-					data.selectedField = i
-					break
-				}
-			}
-		}
-	}
-	// selectedField selects the last one
-	if data.selectedField >= len(p.staticData.fieldsY) {
-		data.selectedField = len(p.staticData.fieldsY) - 1
-	}
 
 	var searchRe *regexp.Regexp
 	if p.searchText != "" {
@@ -175,6 +151,32 @@ func (p *Page) Draw(screen tcell.Screen) {
 	// reset researching, so that up/down moving can work normally
 	p.searching = searchStop
 
+	// Adjust selectedField to make it in the screen if Y changes
+	if len(fieldsY) > 0 && len(fieldsY) > data.selectedField {
+		// When selected field is above the whole page, set to the first within the page
+		if fieldsY[data.selectedField] < data.currentY {
+			for i, y := range fieldsY {
+				if y >= data.currentY {
+					data.selectedField = i
+					break
+				}
+			}
+		}
+		// When selected field is below the whole page, set to the last within the page
+		if fieldsY[data.selectedField] >= data.currentY+p.staticData.windowHeight {
+			for i := len(fieldsY) - 1; i >= 0; i-- {
+				if fieldsY[i] < data.currentY+p.staticData.windowHeight {
+					data.selectedField = i
+					break
+				}
+			}
+		}
+	}
+	// selectedField selects the last one
+	if data.selectedField >= len(p.staticData.fieldsY) {
+		data.selectedField = len(p.staticData.fieldsY) - 1
+	}
+
 	dc := drawCtx{
 		screen: screen,
 		x:      x,
@@ -191,11 +193,16 @@ func (p *Page) Draw(screen tcell.Screen) {
 	for i, l := range p.staticData.lines {
 		drawY := dc.drawY()
 		dc.drawLineWithEscape(l, plainColor, false)
+		var selectedFieldLeft, selectedfieldLen int
 		if i == fieldsY[data.selectedField] {
+			// highlight selected field
 			field, begin := findFirstField(l)
+			selectedFieldLeft = begin
+			selectedfieldLen = len(field)
 			dc.overrideContent(field, begin, drawY, highlightStyle)
 			fieldIdx++
 		} else if fieldIdx < len(fieldsY) && i == fieldsY[fieldIdx] {
+			// highlight field
 			field, begin := findFirstField(l)
 			dc.overrideContent(field, begin, drawY, fieldStyle)
 			fieldIdx++
@@ -203,6 +210,16 @@ func (p *Page) Draw(screen tcell.Screen) {
 		if p.searchText != "" && searchRe != nil {
 			found := searchRe.FindAllStringIndex(l, -1)
 			for _, pair := range found {
+				if i == fieldsY[data.selectedField] {
+					if pair[0] >= selectedFieldLeft && pair[0] < selectedFieldLeft+selectedfieldLen {
+						right := min(pair[1], selectedFieldLeft+selectedfieldLen)
+						dc.overrideContent(l[pair[0]:right], pair[0], drawY, highlightAndSearchStyle)
+						if right <= pair[1] {
+							dc.overrideContent(l[right:pair[1]], right, drawY, searchStyle)
+						}
+						continue
+					}
+				}
 				dc.overrideContent(l[pair[0]:pair[1]], pair[0], drawY, searchStyle)
 			}
 		}
@@ -215,6 +232,13 @@ func (p *Page) Draw(screen tcell.Screen) {
 	if !p.typingCommand {
 		screen.ShowCursor(x+1, height-1)
 	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // Focus is override of Box
@@ -340,9 +364,9 @@ func (p *Page) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.
 		case tcell.KeyTab:
 			data.selectedField++
 			if len(p.staticData.fieldsY) > data.selectedField {
-				data.currentY = p.staticData.fieldsY[data.selectedField]
-				if data.currentY < 0 {
-					data.currentY = 0
+				if p.staticData.fieldsY[data.selectedField]-p.staticData.windowHeight >= data.currentY ||
+					p.staticData.fieldsY[data.selectedField] < data.currentY {
+					data.currentY = p.staticData.fieldsY[data.selectedField]
 				}
 			}
 		case tcell.KeyBacktab:
@@ -351,9 +375,9 @@ func (p *Page) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.
 				data.selectedField = 0
 			}
 			if len(p.staticData.fieldsY) > data.selectedField {
-				data.currentY = p.staticData.fieldsY[data.selectedField]
-				if data.currentY < 0 {
-					data.currentY = 0
+				if p.staticData.fieldsY[data.selectedField]-p.staticData.windowHeight >= data.currentY ||
+					p.staticData.fieldsY[data.selectedField] < data.currentY {
+					data.currentY = p.staticData.fieldsY[data.selectedField]
 				}
 			}
 		case tcell.KeyRune:
