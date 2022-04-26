@@ -1,6 +1,6 @@
 package main
 
-// A tool to generate
+// A tool to generate resource data for remote.
 // kubectl api-resources | go run main.go
 
 import (

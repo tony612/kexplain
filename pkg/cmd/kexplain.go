@@ -2,17 +2,13 @@ package cmd
 
 import (
 	"fmt"
-	"io"
 	"kexplain/pkg/mapper"
 	"kexplain/pkg/model"
 	"kexplain/pkg/view"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
-	openapi_v2 "github.com/googleapis/gnostic/openapiv2"
 	"github.com/rivo/tview"
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -22,9 +18,7 @@ import (
 )
 
 const (
-	defaultKubeTimeout          = "5s"
-	defaultRemoteTimeoutSeconds = 5
-	defaultRemoteUrl            = "https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/swagger.json"
+	defaultKubeTimeout = "5s"
 )
 
 var (
@@ -118,7 +112,7 @@ func (o *KexplainOptions) Complete(cmd *cobra.Command, args []string) error {
 	schema, mapper, k8sErr = o.getK8sResources()
 	if k8sErr != nil {
 		var err error
-		schema, mapper, err = fetchFromRemote()
+		schema, mapper, err = getFromRemote()
 		if err != nil {
 			return fmt.Errorf("fail to get schema from k8s: %v, and remote: %w", k8sErr, err)
 		}
@@ -181,31 +175,6 @@ func (o *KexplainOptions) getK8sResources() (openapi.Resources, mapper.Mapper, e
 		return nil, nil, err
 	}
 	return resources, mapper.NewK8sMapper(k8sMapper), nil
-}
-
-func fetchFromRemote() (openapi.Resources, mapper.Mapper, error) {
-	client := &http.Client{Timeout: defaultRemoteTimeoutSeconds * time.Second}
-	resp, err := client.Get(defaultRemoteUrl)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer resp.Body.Close()
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, nil, err
-	}
-	doc, err := openapi_v2.ParseDocument(data)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	schema, err := openapi.NewOpenAPIData(doc)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return schema, mapper.NewRawMapper(), nil
 }
 
 func splitDotNotation(model string) (string, []string) {
