@@ -23,6 +23,9 @@ func (r *RawMapper) KindFor(resource string) (schema.GroupVersionKind, error) {
 	if i, ok := shortToIndex[resource]; ok {
 		idx = i
 	}
+	if i, ok := kindToIndex[resource]; ok {
+		idx = i
+	}
 	if idx < 0 {
 		return schema.GroupVersionKind{}, fmt.Errorf("not found kind for %s using raw mapper", resource)
 	}

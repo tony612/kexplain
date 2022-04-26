@@ -8,11 +8,13 @@ import (
 var singularToIndex map[string]int
 var pluralToIndex map[string]int
 var shortToIndex map[string]int
+var kindToIndex map[string]int
 
 func init() {
 	singularToIndex = make(map[string]int)
 	pluralToIndex = make(map[string]int)
 	shortToIndex = make(map[string]int)
+	kindToIndex = make(map[string]int)
 	for i, item := range resources {
 		gv, err := schema.ParseGroupVersion(item[2])
 		if err != nil {
@@ -24,6 +26,7 @@ func init() {
 		if item[1] != "" {
 			shortToIndex[item[1]] = i
 		}
+		kindToIndex[item[3]] = i
 	}
 }
 
