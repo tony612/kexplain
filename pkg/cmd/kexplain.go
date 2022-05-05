@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"kexplain/pkg/mapper"
 	"kexplain/pkg/model"
+	"kexplain/pkg/version"
 	"kexplain/pkg/view"
 	"os"
 	"path/filepath"
@@ -39,6 +40,9 @@ when k8s server is not accessible.
 	%[1]s pod.spec.containers
 `
 
+	versionTemplate = `%[1]s {{printf "version %%s" .Version}}
+`
+
 	errNoContext = fmt.Errorf("no context is currently set, use %q to select a new one", "kubectl config use-context <context>")
 )
 
@@ -67,6 +71,7 @@ func NewCmdKexplain(streams genericclioptions.IOStreams) *cobra.Command {
 		Long:         longDoc,
 		Example:      fmt.Sprintf(cliExample, cmdName),
 		SilenceUsage: true,
+		Version:      version.FullVersion(),
 		RunE: func(c *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return c.Help()
@@ -85,6 +90,7 @@ func NewCmdKexplain(streams genericclioptions.IOStreams) *cobra.Command {
 		},
 	}
 
+	cmd.SetVersionTemplate(fmt.Sprintf(versionTemplate, strings.Replace(cmdName, " ", "-", 1)))
 	o.k8sConfigFlags.AddFlags(cmd.InheritedFlags())
 
 	return cmd
