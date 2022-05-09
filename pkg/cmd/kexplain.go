@@ -6,6 +6,7 @@ import (
 	"kexplain/pkg/model"
 	"kexplain/pkg/version"
 	"kexplain/pkg/view"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,6 +46,8 @@ when k8s server is not accessible.
 
 	errNoContext = fmt.Errorf("no context is currently set, use %q to select a new one", "kubectl config use-context <context>")
 )
+
+var debug = false
 
 type KexplainOptions struct {
 	// k8s
@@ -92,6 +95,7 @@ func NewCmdKexplain(streams genericclioptions.IOStreams) *cobra.Command {
 
 	cmd.SetVersionTemplate(fmt.Sprintf(versionTemplate, strings.Replace(cmdName, " ", "-", 1)))
 	o.k8sConfigFlags.AddFlags(cmd.InheritedFlags())
+	cmd.Flags().BoolVar(&debug, "debug", false, "output debug log")
 
 	return cmd
 }
@@ -115,12 +119,25 @@ func (o *KexplainOptions) Complete(cmd *cobra.Command, args []string) error {
 	var schema openapi.Resources
 	var mapper mapper.Mapper
 	var k8sErr error
+	if debug {
+		log.Println("fetching k8s resources")
+	}
 	schema, mapper, k8sErr = o.getK8sResources()
 	if k8sErr != nil {
 		var err error
+		if debug {
+			log.Printf("fail to get k8s resources and get from remote: %s\n", k8sErr)
+		}
 		schema, mapper, err = getFromRemote()
+		if debug {
+			if err == nil {
+				log.Println("done get schema from remote")
+			} else {
+				log.Printf("done get schema from remote, error: %s\n", err)
+			}
+		}
 		if err != nil {
-			return fmt.Errorf("fail to get schema from k8s: %v, and remote: %w", k8sErr, err)
+			return fmt.Errorf("fail to get schema\nfrom k8s: %v,\nand from remote: %w", k8sErr, err)
 		}
 	}
 
@@ -160,25 +177,25 @@ func (o *KexplainOptions) Run() error {
 }
 
 func (o *KexplainOptions) getK8sResources() (openapi.Resources, mapper.Mapper, error) {
-	if o.k8sConfigFlags.Timeout == nil && *o.k8sConfigFlags.Timeout == "" {
+	if o.k8sConfigFlags.Timeout != nil && *o.k8sConfigFlags.Timeout == "" {
 		timeout := defaultKubeTimeout
 		o.k8sConfigFlags.Timeout = &timeout
 	}
 	discovery, err := o.k8sConfigFlags.ToDiscoveryClient()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("fail to get client: %w", err)
 	}
 	schema, err := discovery.OpenAPISchema()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("fail to get schema: %w", err)
 	}
 	resources, err := openapi.NewOpenAPIData(schema)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("fail to get resources from schema: %w", err)
 	}
 	k8sMapper, err := o.k8sConfigFlags.ToRESTMapper()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("fail to get rest mapper: %w", err)
 	}
 	return resources, mapper.NewK8sMapper(k8sMapper), nil
 }

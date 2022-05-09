@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/ioutil"
 	"kexplain/pkg/mapper"
+	"log"
 	"net/http"
 	"os"
 	"path"
@@ -66,6 +67,9 @@ func cacheOrFetch() ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+		if debug {
+			log.Println("write to local cache using remote data")
+		}
 		// TODO: what to do when write fails
 		file.Write(d)
 		return d, nil
@@ -83,6 +87,9 @@ func cacheOrFetch() ([]byte, error) {
 	if len(d) == 0 {
 		return fetchFromRemoteAndSaveCache()
 	}
+	if debug {
+		log.Println("use local cache as remote data")
+	}
 	return d, nil
 }
 
@@ -92,6 +99,9 @@ func cacheName() string {
 }
 
 func fetchFromRemote() ([]byte, error) {
+	if debug {
+		log.Println("fetching doc from remote")
+	}
 	client := &http.Client{Timeout: defaultRemoteTimeoutSeconds * time.Second}
 	resp, err := client.Get(defaultRemoteURL)
 	if err != nil {

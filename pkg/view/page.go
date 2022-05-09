@@ -352,6 +352,28 @@ func (p *Page) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.
 			data.currentY += size
 			// Hitting the bottom is handled in Draw
 		}
+		goBackFn := func() {
+			newDoc := p.doc.FindParentDoc()
+			if newDoc == nil {
+				return
+			}
+			p.doc = newDoc
+			if p.pageDataHistory.Len() == 0 {
+				p.resetData()
+			} else {
+				p.pageData = p.pageDataHistory.Remove(p.pageDataHistory.Back()).(*pageData)
+				p.calLines()
+			}
+		}
+		enterFieldFn := func() {
+			newDoc := p.doc.FindSubDoc(data.selectedField)
+			if newDoc == nil {
+				return
+			}
+			p.doc = newDoc
+			p.pageDataHistory.PushBack(p.pageData)
+			p.resetData()
+		}
 		switch event.Key() {
 		case tcell.KeyUp, tcell.KeyCtrlP:
 			upFn(1)
@@ -395,20 +417,6 @@ func (p *Page) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.
 				}
 			case 'q', 'Q':
 				p.stopFn()
-			case '[':
-				if pressAlt(event) {
-					newDoc := p.doc.FindParentDoc()
-					if newDoc == nil {
-						return
-					}
-					p.doc = newDoc
-					if p.pageDataHistory.Len() == 0 {
-						p.resetData()
-					} else {
-						p.pageData = p.pageDataHistory.Remove(p.pageDataHistory.Back()).(*pageData)
-						p.calLines()
-					}
-				}
 			case '/':
 				p.typingCommand = true
 				p.command = "/"
@@ -423,16 +431,25 @@ func (p *Page) InputHandler() func(event *tcell.EventKey, setFocus func(p tview.
 					return
 				}
 				p.searching = searchBack
+			case '[':
+				if pressAlt(event) {
+					goBackFn()
+				}
+			case ']':
+				if pressAlt(event) {
+					enterFieldFn()
+				}
 			}
-		// Enter the sub field
+		case tcell.KeyLeft:
+			if pressAlt(event) {
+				goBackFn()
+			}
+		case tcell.KeyRight:
+			if pressAlt(event) {
+				enterFieldFn()
+			}
 		case tcell.KeyEnter:
-			newDoc := p.doc.FindSubDoc(data.selectedField)
-			if newDoc == nil {
-				return
-			}
-			p.doc = newDoc
-			p.pageDataHistory.PushBack(p.pageData)
-			p.resetData()
+			enterFieldFn()
 		}
 	})
 }
