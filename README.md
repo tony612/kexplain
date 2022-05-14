@@ -5,8 +5,37 @@ like `less` and jumping around between documentation of fields.
 
 [![asciicast](https://asciinema.org/a/492648.svg)](https://asciinema.org/a/492648)
 
+## Install
 
-## Keys
+* Docker
+
+```
+docker run --rm -it tony612/kexplain pod.spec
+```
+
+* Building from source code
+
+```
+make build
+cp _out/kexplain /YOUR/PATH
+
+# docker
+make docker-build
+```
+
+## Usage
+
+```
+# Get the documentation of the resource and its fields
+kexplain pod
+
+# Get the documentation of a specific field of a resource
+kexplain pod.spec.containers
+```
+
+Then move around. See Key bindings.
+
+## Key bindings
 
 | Key |      Action     |
 | --- | ----------------- |
