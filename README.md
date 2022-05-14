@@ -7,6 +7,8 @@ like `less` and jumping around between documentation of fields.
 
 ## Install
 
+* Pre-compiled binaries are available in the [release](https://github.com/tony612/kexplain/releases) page
+
 * Docker
 
 ```
