@@ -3,6 +3,10 @@
 Kexplain is an interactive `kubectl explain`. It supports viewing the resource documentation
 like `less` and jumping around between documentation of fields.
 
+When kube config doesn't exist or k8s API is not available, a static API document from
+[GitHub](https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/swagger.json) will be used.
+So you can use `kexplain` without k8s clusters!
+
 [![asciicast](https://asciinema.org/a/492648.svg)](https://asciinema.org/a/492648)
 
 ## Install
@@ -21,7 +25,7 @@ docker run --rm -it tony612/kexplain pod.spec
 make build
 cp _out/kexplain /YOUR/PATH
 
-# docker
+# or docker
 make docker-build
 ```
 
