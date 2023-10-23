@@ -43,17 +43,20 @@ when k8s server is not accessible.
 
 	versionTemplate = `%[1]s {{printf "version %%s" .Version}}
 `
-
-	errNoContext = fmt.Errorf("no context is currently set, use %q to select a new one", "kubectl config use-context <context>")
 )
 
-var debug = false
+var (
+	debug      = false
+	k8sVersion = ""
+	remote     = false
+)
 
 type KexplainOptions struct {
 	// k8s
 	k8sConfigFlags *genericclioptions.ConfigFlags
 	mapper         mapper.Mapper
 	schema         openapi.Resources
+	version        string
 
 	args []string
 
@@ -96,6 +99,8 @@ func NewCmdKexplain(streams genericclioptions.IOStreams) *cobra.Command {
 	cmd.SetVersionTemplate(fmt.Sprintf(versionTemplate, strings.Replace(cmdName, " ", "-", 1)))
 	o.k8sConfigFlags.AddFlags(cmd.InheritedFlags())
 	cmd.Flags().BoolVar(&debug, "debug", false, "output debug log")
+	cmd.Flags().BoolVar(&remote, "remote", false, "force to use remote doc instead of k8s server")
+	cmd.Flags().StringVar(&k8sVersion, "k8s-version", "", "custom k8s version for fetching remote doc. Use latest by default")
 
 	return cmd
 }
@@ -119,15 +124,11 @@ func (o *KexplainOptions) Complete(cmd *cobra.Command, args []string) error {
 	var schema openapi.Resources
 	var mapper mapper.Mapper
 	var k8sErr error
-	if debug {
-		log.Println("fetching k8s resources")
-	}
-	schema, mapper, k8sErr = o.getK8sResources()
-	if k8sErr != nil {
-		var err error
+	if remote {
 		if debug {
-			log.Printf("fail to get k8s resources and get from remote: %s\n", k8sErr)
+			log.Println("get doc from remote directly")
 		}
+		var err error
 		schema, mapper, err = getFromRemote()
 		if debug {
 			if err == nil {
@@ -138,6 +139,28 @@ func (o *KexplainOptions) Complete(cmd *cobra.Command, args []string) error {
 		}
 		if err != nil {
 			return fmt.Errorf("fail to get schema\nfrom k8s: %v,\nand from remote: %w", k8sErr, err)
+		}
+	} else {
+		if debug {
+			log.Println("fetching k8s resources")
+		}
+		schema, mapper, k8sErr = o.getK8sResources()
+		if k8sErr != nil {
+			var err error
+			if debug {
+				log.Printf("fail to get k8s resources and get from remote: %s\n", k8sErr)
+			}
+			schema, mapper, err = getFromRemote()
+			if debug {
+				if err == nil {
+					log.Println("done get schema from remote")
+				} else {
+					log.Printf("done get schema from remote, error: %s\n", err)
+				}
+			}
+			if err != nil {
+				return fmt.Errorf("fail to get schema\nfrom k8s: %v,\nand from remote: %w", k8sErr, err)
+			}
 		}
 	}
 
@@ -169,7 +192,11 @@ func (o *KexplainOptions) Run() error {
 		return fmt.Errorf("couldn't find resource for %q", gvk)
 	}
 
-	err = render(fieldsPath, found, gvk)
+	v := o.version
+	if v == "" {
+		v = k8sVersion
+	}
+	err = render(fieldsPath, found, gvk, v)
 	if err != nil {
 		fmt.Printf("failed to render: %s", err)
 	}
@@ -184,6 +211,9 @@ func (o *KexplainOptions) getK8sResources() (openapi.Resources, mapper.Mapper, e
 	discovery, err := o.k8sConfigFlags.ToDiscoveryClient()
 	if err != nil {
 		return nil, nil, fmt.Errorf("fail to get client: %w", err)
+	}
+	if v, err := discovery.ServerVersion(); err == nil {
+		o.version = v.String()
 	}
 	schema, err := discovery.OpenAPISchema()
 	if err != nil {
@@ -213,7 +243,7 @@ func splitDotNotation(model string) (string, []string) {
 	return dotModel[0], fieldsPath
 }
 
-func render(fieldsPath []string, schema proto.Schema, gvk schema.GroupVersionKind) error {
+func render(fieldsPath []string, schema proto.Schema, gvk schema.GroupVersionKind, version string) error {
 	doc, err := model.NewDoc(schema, fieldsPath, gvk)
 	if err != nil {
 		return err
@@ -222,6 +252,7 @@ func render(fieldsPath []string, schema proto.Schema, gvk schema.GroupVersionKin
 	app := tview.NewApplication()
 	page := view.NewPage(doc)
 	page.SetStopFn(func() { app.Stop() })
+	page.SetVersion(version)
 	if err := app.SetRoot(page, true).Run(); err != nil {
 		return err
 	}

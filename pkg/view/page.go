@@ -16,8 +16,9 @@ import (
 // which is based on tview.
 type Page struct {
 	*tview.Box
-	doc    *model.Doc
-	stopFn func()
+	version string
+	doc     *model.Doc
+	stopFn  func()
 
 	staticData *pageStaticData
 	pageData   *pageData
@@ -113,6 +114,10 @@ func (p *Page) SetStopFn(fn func()) {
 	p.stopFn = fn
 }
 
+func (p *Page) SetVersion(v string) {
+	p.version = v
+}
+
 // Draw draws the view
 func (p *Page) Draw(screen tcell.Screen) {
 	p.Box.DrawForSubclass(screen, p)
@@ -187,7 +192,15 @@ func (p *Page) Draw(screen tcell.Screen) {
 
 	//// Draw header
 	dc.drawHorizontalLine(0, plainColor)
-	tview.Print(screen, " "+p.doc.GetFullPath()+" ", 0, 0, dc.width, tview.AlignCenter, plainColor)
+	title := p.doc.GetFullPath()
+	// 6 is 2 space + dash
+	if len(p.doc.GetFullPath())+8 > dc.width {
+		fromIdx := len(title) - (width - 8 - 3) - 1
+		if fromIdx >= 0 && fromIdx < len(title) {
+			title = "..." + title[fromIdx:]
+		}
+	}
+	tview.Print(screen, " "+title+" ", 0, 0, dc.width, tview.AlignCenter, plainColor)
 
 	fieldIdx := 0
 	for i, l := range p.staticData.lines {
@@ -229,6 +242,7 @@ func (p *Page) Draw(screen tcell.Screen) {
 	p.commandBar.SetRect(x+1, height-1, width, 1)
 	p.commandBar.Draw(screen)
 	tview.Print(dc.screen, p.command, x, height-1, 1, tview.AlignLeft, plainColor)
+	tview.Print(dc.screen, "("+p.version+")", x, height-1, dc.width, tview.AlignRight, plainColor)
 	if !p.typingCommand {
 		screen.ShowCursor(x+1, height-1)
 	}
@@ -482,10 +496,6 @@ func (p *Page) doneCommandTyping() {
 	p.typingCommand = false
 	p.command = ":"
 	p.commandBar.SetText("")
-}
-
-func pressShift(e *tcell.EventKey) bool {
-	return e.Modifiers()&tcell.ModShift != 0
 }
 
 func pressAlt(e *tcell.EventKey) bool {

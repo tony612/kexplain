@@ -3,8 +3,8 @@ package cmd
 import (
 	"crypto/md5"
 	"encoding/hex"
+	"fmt"
 	"io"
-	"io/ioutil"
 	"kexplain/pkg/mapper"
 	"log"
 	"net/http"
@@ -19,7 +19,7 @@ import (
 
 const (
 	defaultRemoteTimeoutSeconds = 5
-	defaultRemoteURL            = "https://raw.githubusercontent.com/kubernetes/kubernetes/master/api/openapi-spec/swagger.json"
+	defaultRemoteURL            = "https://raw.githubusercontent.com/kubernetes/kubernetes/%s/api/openapi-spec/swagger.json"
 	defaultCacheDir             = "~/.config/kexplain/cache"
 	cacheFilePrefix             = "remote-"
 	cacheTime                   = time.Hour * 24 * 7
@@ -70,8 +70,10 @@ func cacheOrFetch() ([]byte, error) {
 		if debug {
 			log.Println("write to local cache using remote data")
 		}
-		// TODO: what to do when write fails
-		file.Write(d)
+		_, err = file.Write(d)
+		if err != nil {
+			return nil, err
+		}
 		return d, nil
 	}
 	stat, err := file.Stat()
@@ -80,7 +82,7 @@ func cacheOrFetch() ([]byte, error) {
 		return fetchFromRemoteAndSaveCache()
 	}
 
-	d, err := ioutil.ReadAll(file)
+	d, err := io.ReadAll(file)
 	if err != nil {
 		return fetchFromRemoteAndSaveCache()
 	}
@@ -94,7 +96,7 @@ func cacheOrFetch() ([]byte, error) {
 }
 
 func cacheName() string {
-	sum := md5.Sum([]byte(defaultRemoteURL))
+	sum := md5.Sum([]byte(remoteUrl()))
 	return cacheFilePrefix + hex.EncodeToString(sum[:])
 }
 
@@ -103,7 +105,7 @@ func fetchFromRemote() ([]byte, error) {
 		log.Println("fetching doc from remote")
 	}
 	client := &http.Client{Timeout: defaultRemoteTimeoutSeconds * time.Second}
-	resp, err := client.Get(defaultRemoteURL)
+	resp, err := client.Get(remoteUrl())
 	if err != nil {
 		return nil, err
 	}
@@ -114,4 +116,12 @@ func fetchFromRemote() ([]byte, error) {
 		return nil, err
 	}
 	return data, nil
+}
+
+func remoteUrl() string {
+	if k8sVersion == "" {
+		return fmt.Sprintf(defaultRemoteURL, "master")
+	}
+
+	return fmt.Sprintf(defaultRemoteURL, k8sVersion)
 }

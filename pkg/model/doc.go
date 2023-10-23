@@ -12,6 +12,7 @@ import (
 const gvkExtKey = "x-kubernetes-group-version-kind"
 
 type Doc struct {
+	version    string
 	schema     proto.Schema
 	field      proto.Schema
 	fieldsPath []string
